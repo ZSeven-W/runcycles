@@ -1,0 +1,10 @@
+{
+  "name": "runcycles",
+  "version": "0.1.0",
+  "description": "Local-first budget guard for agent execution loops with a Node API and Python ledger CLI.",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/server.js"
+  }
+}
