@@ -34,6 +34,7 @@ Core endpoints:
 - `GET /policy-templates?owner=...` — list policy templates newest-first, optionally filtered by owner
 - `POST /approval-requests/:id/decisions` — approve or reject blocked runs
 - `GET /approval-requests` — review the approval inbox, optionally filtered with `?status=...`, `?owner=...`, or `?budget_pool_id=...`
+- `GET /approval-requests/summary` — inspect approval queue totals, newest-first pending attention items, and optional `?agent=...` / `?attention_only=true` inbox slices
 - `GET /events?resource_id=...` — inspect lifecycle events for runs, pools, and approvals
 - `GET /events?type=...&budget_pool_id=...&owner=...&agent=...` — narrow the lifecycle feed for inbox-style reviews and webhook consumers
 
@@ -43,6 +44,8 @@ Example approval inbox flow:
 curl -s http://127.0.0.1:4327/approval-requests?status=pending_approval
 curl -s http://127.0.0.1:4327/approval-requests?owner=growth
 curl -s 'http://127.0.0.1:4327/approval-requests?status=pending_approval&budget_pool_id=pool_123'
+curl -s http://127.0.0.1:4327/approval-requests/summary
+curl -s 'http://127.0.0.1:4327/approval-requests/summary?agent=codex&attention_only=true'
 curl -s http://127.0.0.1:4327/policy-templates?owner=docs
 curl -s http://127.0.0.1:4327/budget-pools?owner=growth
 curl -s http://127.0.0.1:4327/budget-pools/pool_123/summary

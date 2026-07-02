@@ -235,6 +235,29 @@ class RunStore {
     return { ...publicApprovalRequest };
   }
 
+  #sortApprovalRequests(approvalRequests) {
+    return approvalRequests.sort((left, right) => right.requested_sequence - left.requested_sequence);
+  }
+
+  #filterApprovalRequests({ status = null, owner = null, budgetPoolId = null, agent = null } = {}) {
+    return Array.from(this.approvalRequests.values())
+      .filter((approvalRequest) => (status ? approvalRequest.status === status : true))
+      .filter((approvalRequest) => (budgetPoolId ? approvalRequest.budget_pool_id === budgetPoolId : true))
+      .filter((approvalRequest) => (agent ? approvalRequest.agent === agent : true))
+      .filter((approvalRequest) => {
+        if (!owner) {
+          return true;
+        }
+
+        if (!approvalRequest.budget_pool_id) {
+          return false;
+        }
+
+        const pool = this.budgetPools.get(approvalRequest.budget_pool_id);
+        return pool ? pool.owner === owner : false;
+      });
+  }
+
   #sortOwnerSummaries(summaries) {
     return summaries.sort((left, right) => {
       const leftAttention = left.budget_pool_counts.needing_attention > 0 ? 1 : 0;
@@ -707,24 +730,40 @@ class RunStore {
     return approvalRequest ? { ...approvalRequest } : null;
   }
 
-  listApprovalRequests({ status = null, owner = null, budgetPoolId = null } = {}) {
-    return Array.from(this.approvalRequests.values())
-      .filter((approvalRequest) => (status ? approvalRequest.status === status : true))
-      .filter((approvalRequest) => (budgetPoolId ? approvalRequest.budget_pool_id === budgetPoolId : true))
-      .filter((approvalRequest) => {
-        if (!owner) {
-          return true;
-        }
+  listApprovalRequests({ status = null, owner = null, budgetPoolId = null, agent = null } = {}) {
+    return this.#sortApprovalRequests(this.#filterApprovalRequests({
+      status,
+      owner,
+      budgetPoolId,
+      agent
+    }))
+      .map((approvalRequest) => this.#toPublicApprovalRequest(approvalRequest));
+  }
 
-        if (!approvalRequest.budget_pool_id) {
-          return false;
-        }
+  getApprovalRequestPortfolioSummary({ status = null, owner = null, budgetPoolId = null, agent = null, attentionOnly = false } = {}) {
+    const approvalRequests = this.#sortApprovalRequests(this.#filterApprovalRequests({
+      status,
+      owner,
+      budgetPoolId,
+      agent
+    }));
+    const filteredApprovalRequests = attentionOnly
+      ? approvalRequests.filter((approvalRequest) => approvalRequest.status === 'pending_approval')
+      : approvalRequests;
 
-        const pool = this.budgetPools.get(approvalRequest.budget_pool_id);
-        return pool ? pool.owner === owner : false;
-      })
-      .sort((left, right) => right.requested_sequence - left.requested_sequence)
-      .map(({ requested_sequence: _requestedSequence, ...approvalRequest }) => ({ ...approvalRequest }));
+    return {
+      approval_request_counts: this.#buildApprovalRequestCounts(filteredApprovalRequests),
+      requested_budget_cents_total: filteredApprovalRequests.reduce(
+        (total, approvalRequest) => total + approvalRequest.requested_budget_cents,
+        0
+      ),
+      latest_approval_request: this.#toPublicApprovalRequest(filteredApprovalRequests[0]),
+      attention_approval_requests: filteredApprovalRequests
+        .filter((approvalRequest) => approvalRequest.status === 'pending_approval')
+        .map((approvalRequest) => this.#toPublicApprovalRequest(approvalRequest)),
+      approval_requests: filteredApprovalRequests
+        .map((approvalRequest) => this.#toPublicApprovalRequest(approvalRequest))
+    };
   }
 
   decideApprovalRequest(approvalRequestId, { decision, decided_by: decidedBy }) {

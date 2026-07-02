@@ -846,6 +846,163 @@ test('GET /approval-requests lists approval inbox items and supports status/owne
   await once(server, 'close');
 });
 
+test('GET /approval-requests/summary returns inbox totals, attention queue, and supports agent + attention_only filtering', async () => {
+  const server = createServer();
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+
+  const { port } = server.address();
+  const docsPoolResponse = await fetch(`http://127.0.0.1:${port}/budget-pools`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: 'Docs approvals',
+      owner: 'docs',
+      total_budget_cents: 6000,
+      max_run_budget_cents: 3200,
+      approval_required_cents: 1400
+    })
+  });
+  assert.equal(docsPoolResponse.status, 201);
+  const docsPool = await docsPoolResponse.json();
+
+  const growthPoolResponse = await fetch(`http://127.0.0.1:${port}/budget-pools`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: 'Growth approvals',
+      owner: 'growth',
+      total_budget_cents: 9000,
+      max_run_budget_cents: 4200,
+      approval_required_cents: 1800
+    })
+  });
+  assert.equal(growthPoolResponse.status, 201);
+  const growthPool = await growthPoolResponse.json();
+
+  const firstRequestResponse = await fetch(`http://127.0.0.1:${port}/runs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(createBudgetPayload({
+      agent: 'codex',
+      task: 'docs exception one',
+      budget_pool_id: docsPool.pool_id,
+      budget_cents: 2200,
+      request_approval_on_block: true
+    }))
+  });
+  assert.equal(firstRequestResponse.status, 202);
+  const firstRequest = await firstRequestResponse.json();
+
+  const secondRequestResponse = await fetch(`http://127.0.0.1:${port}/runs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(createBudgetPayload({
+      agent: 'codex',
+      task: 'growth exception two',
+      budget_pool_id: growthPool.pool_id,
+      budget_cents: 2600,
+      request_approval_on_block: true
+    }))
+  });
+  assert.equal(secondRequestResponse.status, 202);
+  const secondRequest = await secondRequestResponse.json();
+
+  const thirdRequestResponse = await fetch(`http://127.0.0.1:${port}/runs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(createBudgetPayload({
+      agent: 'hermes',
+      task: 'growth exception three',
+      budget_pool_id: growthPool.pool_id,
+      budget_cents: 2100,
+      request_approval_on_block: true
+    }))
+  });
+  assert.equal(thirdRequestResponse.status, 202);
+  const thirdRequest = await thirdRequestResponse.json();
+
+  const rejectResponse = await fetch(`http://127.0.0.1:${port}/approval-requests/${secondRequest.approval_request_id}/decisions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      decision: 'rejected',
+      decided_by: 'ops-oncall'
+    })
+  });
+  assert.equal(rejectResponse.status, 200);
+
+  const summaryResponse = await fetch(`http://127.0.0.1:${port}/approval-requests/summary`);
+  assert.equal(summaryResponse.status, 200);
+  const summary = await summaryResponse.json();
+
+  assert.deepEqual(summary.approval_request_counts, {
+    total: 3,
+    pending_approval: 2,
+    approved: 0,
+    rejected: 1
+  });
+  assert.equal(summary.requested_budget_cents_total, 6900);
+  assert.equal(summary.latest_approval_request.approval_request_id, thirdRequest.approval_request_id);
+  assert.deepEqual(
+    summary.attention_approval_requests.map((request) => request.approval_request_id),
+    [thirdRequest.approval_request_id, firstRequest.approval_request_id]
+  );
+  assert.deepEqual(
+    summary.approval_requests.map((request) => request.approval_request_id),
+    [thirdRequest.approval_request_id, secondRequest.approval_request_id, firstRequest.approval_request_id]
+  );
+
+  const codexSummaryResponse = await fetch(`http://127.0.0.1:${port}/approval-requests/summary?agent=codex`);
+  assert.equal(codexSummaryResponse.status, 200);
+  const codexSummary = await codexSummaryResponse.json();
+  assert.deepEqual(codexSummary.approval_request_counts, {
+    total: 2,
+    pending_approval: 1,
+    approved: 0,
+    rejected: 1
+  });
+  assert.equal(codexSummary.requested_budget_cents_total, 4800);
+  assert.deepEqual(
+    codexSummary.approval_requests.map((request) => request.approval_request_id),
+    [secondRequest.approval_request_id, firstRequest.approval_request_id]
+  );
+  assert.deepEqual(
+    codexSummary.attention_approval_requests.map((request) => request.approval_request_id),
+    [firstRequest.approval_request_id]
+  );
+
+  const attentionOnlyResponse = await fetch(`http://127.0.0.1:${port}/approval-requests/summary?attention_only=true`);
+  assert.equal(attentionOnlyResponse.status, 200);
+  const attentionOnly = await attentionOnlyResponse.json();
+  assert.deepEqual(attentionOnly.approval_request_counts, {
+    total: 2,
+    pending_approval: 2,
+    approved: 0,
+    rejected: 0
+  });
+  assert.equal(attentionOnly.requested_budget_cents_total, 4300);
+  assert.deepEqual(
+    attentionOnly.approval_requests.map((request) => request.approval_request_id),
+    [thirdRequest.approval_request_id, firstRequest.approval_request_id]
+  );
+
+  server.close();
+  await once(server, 'close');
+});
+
 test('GET /policy-templates lists templates newest-first and supports owner filtering', async () => {
   const server = createServer();
   server.listen(0, '127.0.0.1');

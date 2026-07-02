@@ -125,12 +125,23 @@ function createServer({ store = new RunStore() } = {}) {
         return json(response, run.status === 'pending_approval' ? 202 : 201, run);
       }
 
+      if (request.method === 'GET' && url.pathname === '/approval-requests/summary') {
+        return json(response, 200, store.getApprovalRequestPortfolioSummary({
+          status: url.searchParams.get('status'),
+          owner: url.searchParams.get('owner'),
+          budgetPoolId: url.searchParams.get('budget_pool_id'),
+          agent: url.searchParams.get('agent'),
+          attentionOnly: url.searchParams.get('attention_only') === 'true'
+        }));
+      }
+
       if (request.method === 'GET' && url.pathname === '/approval-requests') {
         return json(response, 200, {
           approval_requests: store.listApprovalRequests({
             status: url.searchParams.get('status'),
             owner: url.searchParams.get('owner'),
-            budgetPoolId: url.searchParams.get('budget_pool_id')
+            budgetPoolId: url.searchParams.get('budget_pool_id'),
+            agent: url.searchParams.get('agent')
           })
         });
       }
